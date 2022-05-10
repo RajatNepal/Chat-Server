@@ -1,0 +1,40 @@
+#container {
+    background-color:red;
+    display:flex;
+    flex-direction:row;
+    border: 1px green;
+    height: 100%;
+    width:100%;
+}
+#chatlog {
+    flex:1;
+    border: 1px green;
+    width:50%;
+}
+#menu-wrapper {
+    flex:1;
+    border: 1px green;
+    width:50%;
+    display: flex;
+    flex-direction:column;
+}
+#rooms {
+    flex:2;
+    height:50%;
+}
+#admin-panel {
+    flex:2;
+    height:50%;
+}
+
+.room-display {
+    display:inline-block;
+}
+
+.user-display {
+    display:inline-block;
+}
+
+.room-display-button{
+    display:inline-block;
+}

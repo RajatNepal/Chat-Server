@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <script src="/socket.io/socket.io.js"></script>
+      <script type ="text/javascript">
+
+      let user = ""; //User is a global variable for now instead of a cookie
+      let current_room = "";
+
+      var socketio = io.connect();
+
+
+      socketio.on("message_to_client",function(data) {
+         //Append an HR thematic break and the escaped HTML of the new message
+         document.getElementById("chatlog").appendChild(document.createElement("hr"));
+         document.getElementById("chatlog").appendChild(document.createTextNode(data["user"]+": "+data['message']));
+      });
+
+      socketio.on("return_rooms_available", function(data) {
+         console.log('2');
+         console.log(current_room);
+         if (user !== ""){ //Conditional to avoid this rendering when the user hasn't entered the chat site yet
+            render_rooms(data["rooms"]);
+         }
+      });
+
+      socketio.on("return_users_in_room", function(data) {
+         console.log('3');
+         // console.log(data["users"]+" "+data["owner"]);
+         // render_users_in_room(data["users"],data["owner"]);
+         console.log(data["users"]);
+         render_users_in_room(data["users"]);
+      })
+
+      socketio.on("entry_success", function(data){ //Only initialize the client view if the user could be entered into our backend hashmap
+         console.log("entry success");
+         init_client();
+      })
+
+      socketio.on("client_kicked_from_room", function(data) {
+         current_room = ""; //This is so the client which got kicked, knows that its not in a room
+         //Everything else has already been handeled on the back end
+      })
+
+
+      function kick_target(target){
+        
+         socketio.emit("kick_target",{"user":user, "target":target, "room":current_room});
+      }
+
+      function ban_target(target){
+       
+         socketio.emit("ban_target",{"user":user, "target":target, "room":current_room});
+      }
+
+      function sendMessage(input_element){
+         // var msg = document.getElementById("message-input").value;
+         var msg = input_element.value;
+
+         //In addition to being bound to the textbox
+         //Each time we send a message we want to check the dropdown
+
+         let target = document.getElementById("message-target").value;
+
+         if (target === "room"){ //We just perform a normal message to the entire room
+            socketio.emit("message_to_server", {user:user, message:msg});
+         }
+         else { //We perform a private message to the specified user
+            socketio.emit("private_message_to_server", {user:user, target:target, message:msg});
+         }
+
+      }
+
+      function add_room (room_name, pass) { //In the back end, create room really just joins this socket id to the room
+         // var room_name = input_element.value;
+
+         current_room = room_name;
+         if (pass === ""){ //If password field is empty we just create a public room
+            socketio.emit("create_room", {"user":user, "room_name":room_name, "private": false});
+         }
+         else {
+            socketio.emit("create_room", {"user":user, "room_name":room_name, "private": true, "password":pass});
+         }
+         
+      }
+
+      function join_room (room_name) {
+         socketio.emit("join_room", {"user":user, "room_name":room_name});
+      }
+
+      function join_private_room (room_name, pass) {
+         //No clue why this specific line is causing a stackoverflow
+         //This error solely occurs in the front end
+         //It only occurs for private rooms, not regular rooms
+
+         let p = pass+""; // This fixed it, I changed the object so it could not longer detect a recursive binary
+
+         //By including the password field in the json, it says I'm creating a recursive object binary
+         socketio.emit("join_private_room", {"user":user, "password":p, "room_name":room_name});
+      
+      }
+
+      socketio.on('join_room_success', function (data){
+         //Only want to change the current_room in the client, if we were actually able to join the room
+         current_room = data["room_name"];
+      })
+
+      function leave_room (room_name) {
+         current_room = ""; //technically worksd but I'd rather this update instantly rather than on the refresh
+         socketio.emit("leave_room", {"user":user}); //user just leaves the room they're currently in.
+      }
+
+      function attempt_entry(){ //Attempts to add a new user into nodejs users hashmap
+         // console.log('in');
+         let user_input = document.getElementById("user-input").value;
+         socketio.emit("new_user", {"user":user_input});
+      }
+
+      function init_client() {
+         let user_input = document.getElementById("user-input").value;
+         current_room = "";
+
+         document.cookie = "user="+user_input+";"; //stores username as a cookie
+         user = user_input; //Sets global variable
+         console.log(user);
+         
+         socketio.emit("new_user", {"user":user});
+
+         render_chat_site();
+
+         //Lets message box use enter to submit messages
+         const message_box = document.getElementById('message-input');
+         bind_callback_textbox_enter(message_box,sendMessage); //don't add parenthese, passing the function rather than calling it
+
+         const rooms_window = document.getElementById('rooms-wrapper');
+         rooms_window.innerHTML = "<div id = 'create-room'><h3> New Room: </h3> <input type='text' id='new-room-input'/> <input type='text' id='new-room-password'/><button id='submit-new-room'>Create</button></div>";
+         rooms_window.innerHTML += "<div id = 'rooms'></div>";
+
+         //bind_callback_textbox_enter(document.getElementById('new-room-input'),add_room);
+
+         document.getElementById('submit-new-room').addEventListener("click", function () {
+            let name = document.getElementById('new-room-input').value;
+            let pass = document.getElementById('new-room-password').value;
+            //console.log(name + " " + pass);
+            add_room(name, pass);
+         });
+
+
+         //Don't need to call render rooms, this will be called automatically upon connection
+      }
+
+
+      function render_chat_site() {
+         let layout = "<div id ='container'> <div id = 'chat-box-wrapper'><div id='chatlog'></div> <div id = 'message-input-wrapper'><input type='text' id='message-input'/></div> <div id='chatlog'></div>  <div id = 'message-target-wrapper'><select name='target' id='message-target'></select></div>  </div>  <div id = 'menu-wrapper'><div id = 'rooms-wrapper'></div><div id = 'users-panel'></div></div>    </div>";
+         document.getElementsByTagName("body")[0].innerHTML = layout;
+      }
+
+      function render_rooms(rooms) {
+
+         console.log(current_room);
+
+         let rooms_container = document.getElementById("rooms");
+
+
+         let content = "";
+
+         for (let [room_name, private] of Object.entries(rooms)){
+            
+            if (private){
+               content += "<div class='room-display'><h3>"+room_name+"</h3><input type='text' id='room_pass_"+room_name+"'></input><button id='join_room_"+room_name+"'>Join Room</button></div>";
+               //rooms_container.append("<div class='room-display'><h3>"+room_name+"</h3><input type='text'></input><button id='join_room_"+room_name+"'>Join Room</button></div>");
+            }
+            else {
+               content += "<div class='room-display'><h3>"+room_name+"</h3><button id='join_room_"+room_name+"'>Join Room</button></div>";
+               //rooms_container.append("<div class='room-display'><h3>"+room_name+"</h3><button id='join_room_"+room_name+"'>Join Room</button></div>");
+            }
+         
+         }
+
+         //We can do this in one for loop, but honestly its just easier to write in two
+          rooms_container.innerHTML = content;
+
+          //Configures the correct button to display for each room
+         for (let [room_name, private] of Object.entries(rooms)){
+            let str = room_name;
+            let target = document.getElementById("join_room_"+str);
+
+
+            let func = () => {};
+            console.log("Current room " + current_room);
+            console.log("Received room name "+ room_name);
+            if (current_room === room_name){ //If we're currently in the room then we want to display that we can leave it.
+               func = () => {
+                  leave_room(str);
+               }
+               target.innerHTML = "Leave Room";
+            }
+            else {
+
+               if (private){
+                  func =  () => { //Previously rooms[i] wasn't defined in here, javascript scoping is strange
+                     //We only want to get the value of this element when we run the callback.
+                     let password = document.getElementById("room_pass_"+str).value;
+                     join_private_room(str,password);
+                  }
+               }
+               else {
+                  func =  () => { //Previously rooms[i] wasn't defined in here, javascript scoping is strange
+                     join_room(str);
+                  }
+               }
+            }
+
+            target.addEventListener("click", func);
+
+         }
+
+      }
+
+      function render_users_in_room(users){
+
+         let users_container = document.getElementById("users-panel");
+
+         let client_is_owner = (users[users.length-1] === user); //Compares our user to the one at the end of the users array
+         let content = "";
+         for (i = 0; i<users.length; i++){
+            console.log(client_is_owner);
+            if (client_is_owner){
+               console.log('appended button');
+               content += "<div class='user-display'><h3>"+users[i]+"</h3><button id='kick_user_"+users[i]+"'>Kick</button><button id='ban_user_"+users[i]+"'>Ban</button></div>";
+            }
+            else {
+               content += "<div class='user-display'><h3>"+users[i]+"</h3></div>";
+            }
+         }
+
+         //For kicking users, it doesn't say that we need to do it for a variable time
+         //Might just make kick time constant at like 5 minutes or somethings
+
+         users_container.innerHTML = content;
+
+         let kick_button = "";
+         let ban_button = "";
+         if (client_is_owner) {
+            for (i = 0; i<users.length; i++){
+               
+               let str = users[i];
+               kick_button = document.getElementById("kick_user_"+str);
+               ban_button = document.getElementById("ban_user_"+str);
+               let target = users[i];
+
+               let kick_func = () => {
+                  kick_target(target);
+               };
+               let ban_func = () => {
+                  ban_target(target);
+               }
+
+               kick_button.addEventListener("click", kick_func);
+               ban_button.addEventListener("click",ban_func)
+            }
+         }
+
+         content = "";
+
+         //Now we also need to update the drop down option for people you want to send messages to
+
+         let users_dropdown = document.getElementById("message-target");
+
+
+         if (users.length === 0){
+            content = "";
+         }
+         else {
+            //If we are in a room, we want Room to be the first option
+            content += "<option value='room'>Room</option>";
+            for (i = 0; i<users.length; i++){
+               content += "<option value='"+users[i]+"'>"+users[i]+"</option>";
+            }
+         }
+
+         users_dropdown.innerHTML = content;
+
+      }
+
+      function bind_callback_textbox_enter (element, callback){
+         //element should be the text input
+         //callback should be a function which gets that same el
+
+         element.addEventListener("keyup", function(key) {
+            if (key.keyCode === 13){
+               callback(element); //passes element to the callback as an input_element
+               element.value = "";
+            }
+         });
+      }
+
+
+
+      </script>
+      <!-- <link rel="stylesheet" href="styles.css"> -->
+      <style>
+         #container {
+            display:flex;
+            flex-direction:row;
+            border: 1px solid rgb(0, 0, 0);
+            height: 1000px;
+            width:1000px;
+         }
+         #chat-box-wrapper {
+            display:flex;
+            flex-direction:column;
+            flex:1;
+            border: 1px solid rgb(0, 0, 0);
+            width:500px;
+            overflow-y:scroll;
+         }
+         #menu-wrapper {
+            flex:1;
+            border: 1px solid rgb(0, 0, 0);
+            width:500px;
+            display: flex;
+            flex-direction:column;
+         }
+         #rooms {
+            /* background-color:red; */
+            flex:2;
+            height:500px;
+            border: 1px solid rgb(0, 0, 0);
+         }
+         #users-panel {
+            flex:2;
+            height:500px;
+            border: 1px solid rgb(0, 0, 0);
+         }
+         #message-input {
+            width:500px;
+         }
+         /* #message-input-wrapper {
+            border: 1px solid rgb(0, 0, 0);
+            /* flex-basis:10%;
+            height:10%; 
+            flex:3;
+         }
+         #chatlog {
+            border: 1px solid rgb(0, 0, 0);
+            /* flex-basis:90%;
+            height:90%; 
+            flex:3;
+         } */
+      </style>
+   </head>
+   <body>
+
+      <div id="user_entry">
+         <input type="text" id="user-input"/>
+         <button onclick="attempt_entry()">Enter Username</button>
+      </div>
+
+   </body>
+</html>
