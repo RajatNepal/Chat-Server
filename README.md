@@ -1,4 +1,4 @@
-# m6_group_temp
+# Chat Server
 
 Rajat Nepal
 
